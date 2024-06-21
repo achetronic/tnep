@@ -1,0 +1,24 @@
+apiVersion: extensions.istio.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: openid-connect
+  namespace: istio-ingress
+spec:
+  # Where to apply the plugin
+  selector:
+    matchLabels:
+      istio: ingressgateway
+
+  # Where to get the plugin
+  url: https://private-bucket/filters/openid.wasm
+  imagePullPolicy: Always
+
+  # When to apply the plugin
+  # Ref: https://istio.io/latest/docs/reference/config/proxy_extensions/wasm-plugin/#PluginType
+  type: HTTP
+  phase: AUTHN
+
+  # Params to pass to the plugin
+  pluginConfig:
+    openid_server: authn
+    openid_realm: ingress
