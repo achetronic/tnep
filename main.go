@@ -10,6 +10,7 @@
 package main
 
 import (
+	"reflect"
 	slices2 "slices"
 	"strings"
 
@@ -77,15 +78,17 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		return types.OnPluginStartStatusFailed
 	}
 
-	pepe := gjson.Get(string(data), "num_trusted_hops").Num
-	p.numTrustedHops = int(pepe)
+	configNumTrustedHops := gjson.Get(string(data), "num_trusted_hops").Num
+	p.numTrustedHops = int(configNumTrustedHops)
 
-	//if p.numTrustedHops == nil {
-	//	proxywasm.LogCritical(`invalid configuration format; expected {"num_trusted_hops": "<num>"}`)
-	//	return types.OnPluginStartStatusFailed
-	//}
+	// Check parameter type
+	numTrustedHopsType := reflect.TypeOf(p.numTrustedHops)
+	if numTrustedHopsType.Kind() != reflect.Int {
+		proxywasm.LogCritical(`invalid configuration format; expected {"num_trusted_hops": "<num>"}`)
+		return types.OnPluginStartStatusFailed
+	}
 
-	proxywasm.LogInfof("num_trusted_hops from config: %s", p.numTrustedHops)
+	proxywasm.LogInfof("num_trusted_hops from config: %d", p.numTrustedHops)
 
 	return types.OnPluginStartStatusOK
 }
