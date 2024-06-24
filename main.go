@@ -10,6 +10,7 @@
 package main
 
 import (
+	slices2 "slices"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -47,16 +48,14 @@ type pluginContext struct {
 
 	// headerName and headerValue are the header to be added to response. They are configured via
 	// plugin configuration during OnPluginStart.
-	headerName  string
-	headerValue string
+	numTrustedHops int
 }
 
 // NewHttpContext implements types.PluginContext.
 func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	return &httpHeaders{
-		contextID:   contextID,
-		headerName:  p.headerName,
-		headerValue: p.headerValue,
+		contextID:      contextID,
+		numTrustedHops: p.numTrustedHops,
 	}
 }
 
@@ -74,19 +73,19 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	}
 
 	if !gjson.Valid(string(data)) {
-		proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
+		proxywasm.LogCritical(`invalid configuration format; expected {"num_trusted_hops": "<num>"}`)
 		return types.OnPluginStartStatusFailed
 	}
 
-	p.headerName = strings.TrimSpace(gjson.Get(string(data), "header").Str)
-	p.headerValue = strings.TrimSpace(gjson.Get(string(data), "value").Str)
+	pepe := gjson.Get(string(data), "num_trusted_hops").Num
+	p.numTrustedHops = int(pepe)
 
-	if p.headerName == "" || p.headerValue == "" {
-		proxywasm.LogCritical(`invalid configuration format; expected {"header": "<header name>", "value": "<header value>"}`)
-		return types.OnPluginStartStatusFailed
-	}
+	//if p.numTrustedHops == nil {
+	//	proxywasm.LogCritical(`invalid configuration format; expected {"num_trusted_hops": "<num>"}`)
+	//	return types.OnPluginStartStatusFailed
+	//}
 
-	proxywasm.LogInfof("header from config: %s = %s", p.headerName, p.headerValue)
+	proxywasm.LogInfof("num_trusted_hops from config: %s", p.numTrustedHops)
 
 	return types.OnPluginStartStatusOK
 }
@@ -96,13 +95,16 @@ type httpHeaders struct {
 	// Embed the default http context here,
 	// so that we don't need to reimplement all the methods.
 	types.DefaultHttpContext
-	contextID   uint32
-	headerName  string
-	headerValue string
+	contextID uint32
+
+	//
+	numTrustedHops int
 }
 
 // OnHttpRequestHeaders implements types.HttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
+
+	proxywasm.LogCriticalf("numTrustedHops variable: %v", ctx.numTrustedHops)
 
 	hs, err := proxywasm.GetHttpRequestHeaders()
 	if err != nil {
@@ -121,10 +123,22 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 			proxywasm.LogCriticalf("failed to set '%s' header: %v", HttpHeaderOriginalXff, err)
 		}
 
-		// Replace Xff header
+		// 88.x.x.x,34.y.y.y,35.z.z.z,10.a.a.a -> [88.x.x.x, 34.y.y.y, 35.z.z.z, 10.a.a.a]
 		sourceHops := strings.Split(h[1], ",")
-		proxywasm.LogInfof("original client ip found: %s", sourceHops[0])
 
+		// [10.a.a.a, 35.z.z.z, 34.y.y.y, 88.x.x.x]
+		slices2.Reverse(sourceHops)
+
+		// Delete hops when we trust less than coming
+		if ctx.numTrustedHops < len(sourceHops) {
+			slices2.Delete(sourceHops, 0, ctx.numTrustedHops)
+			proxywasm.LogInfof("original client ip found: %s", sourceHops[0])
+		} else {
+			sourceHops = []string{""}
+			proxywasm.LogInfof("original client ip NOT found. Are you trusting too many hops?")
+		}
+
+		// Replace Xff header
 		err = proxywasm.ReplaceHttpRequestHeader(HttpHeaderXff, sourceHops[0])
 		if err != nil {
 			proxywasm.LogCriticalf("failed to replace '%s' header: %v", HttpHeaderXff, err)

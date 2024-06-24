@@ -20,5 +20,4 @@ spec:
 
   # Params to pass to the plugin
   pluginConfig:
-    openid_server: authn
-    openid_realm: ingress
+    num_trusted_hops: 3
