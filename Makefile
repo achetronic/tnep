@@ -68,7 +68,7 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 .PHONY: build
 build: ## Build WASM binary.
 	@mkdir -p dist
-	@tinygo build -o dist/main.wasm -scheduler=none -target=wasi .
+	$(TINYGO) build -o dist/main.wasm -scheduler=none -target=wasi .
 
 .PHONY: run
 run: envoy ## Run an envoy using your plugin from your host
@@ -83,7 +83,7 @@ docker-build: build ## Build docker image with the plugin
 	$(CONTAINER_TOOL) build -t ${IMG} . -f Dockerfile --build-arg WASM_BINARY_PATH=dist/main.wasm
 
 .PHONY: docker-push
-docker-push: ## Push docker image with the plugin.
+docker-push: ## Push previously built docker image with the plugin.
 	$(CONTAINER_TOOL) push ${IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
@@ -99,22 +99,19 @@ docker-buildx: ## Build and push docker image for the plugin for cross-platform 
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
 	$(CONTAINER_TOOL) buildx use project-v3-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --build-arg WASM_BINARY_PATH=dist/main.wasm --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm project-v3-builder
 	rm Dockerfile.cross
 
-# Build OCI images of *compat* variant of Wasm Image Specification with built example binaries,
-# and push to ghcr.io/tetratelabs/proxy-wasm-go-sdk-examples.
-# See https://github.com/solo-io/wasm/blob/master/spec/spec-compat.md for details.
-# Only-used in github workflow on the main branch, and not for developers.
-# Requires "buildah" CLI.
-.PHONY: docker-build-oci
-docker-build-oci: build
-	@buildah bud -f Dockerfile --build-arg WASM_BINARY_PATH=dist/main.wasm -t ${IMG} .
-
-.PHONY: docker-push-oci
-docker-push-oci: build
-	@buildah push ${IMG}
+.PHONY: docker-buildx-oci
+docker-buildx-oci: ## Build OCI docker image for the plugin for cross-platform support
+	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
+	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
+	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
+	$(CONTAINER_TOOL) buildx use project-v3-builder
+	- $(CONTAINER_TOOL) buildx build --build-arg WASM_BINARY_PATH=dist/main.wasm --output "type=oci,dest=dist/plugin-oci-image.tar" --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx rm project-v3-builder
+	rm Dockerfile.cross
 
 ##@ Build Dependencies
 
@@ -125,9 +122,13 @@ $(LOCALBIN):
 
 ## Tool Binaries
 ENVOY ?= $(LOCALBIN)/envoy
+ORAS ?= $(LOCALBIN)/oras
+TINYGO ?= $(LOCALBIN)/tinygo/bin/tinygo
 
 ## Tool Versions
 ENVOY_VERSION ?= 1.30.2
+ORAS_VERSION ?= 1.2.0
+TINYGO_VERSION ?= 0.32.0
 
 .PHONY: envoy
 envoy: $(ENVOY) ## Download envoy locally if necessary.
@@ -136,4 +137,23 @@ $(ENVOY): $(LOCALBIN)
 		wget --timestamping --quiet https://github.com/envoyproxy/envoy/releases/download/v$(ENVOY_VERSION)/envoy-contrib-$(ENVOY_VERSION)-linux-x86_64 -P $(LOCALBIN); \
 		mv $(LOCALBIN)/envoy-contrib-$(ENVOY_VERSION)-linux-x86_64 $(LOCALBIN)/envoy; \
 		chmod +x $(LOCALBIN)/envoy; \
+	}
+
+.PHONY: oras
+oras: $(ORAS) ## Download ORAS locally if necessary.
+$(ORAS): $(LOCALBIN)
+	@test -s $(LOCALBIN)/oras || { \
+		wget --timestamping --quiet https://github.com/oras-project/oras/releases/download/v$(ORAS_VERSION)/oras_$(ORAS_VERSION)_linux_amd64.tar.gz -P /tmp; \
+		tar --gzip --extract --directory /tmp --file /tmp/oras_$(ORAS_VERSION)_linux_amd64.tar.gz oras; \
+		mv /tmp/oras $(LOCALBIN)/oras; \
+		chmod +x $(LOCALBIN)/oras; \
+	}
+
+.PHONY: tinygo
+tinygo: $(TINYGO) ## Download tinygo locally if necessary.
+$(TINYGO): $(LOCALBIN)
+	@test -s $(LOCALBIN)/tinygo || { \
+		wget --timestamping --quiet https://github.com/tinygo-org/tinygo/releases/download/v$(TINYGO_VERSION)/tinygo$(TINYGO_VERSION).linux-amd64.tar.gz -P /tmp; \
+		tar --gzip --extract --directory /tmp --file /tmp/tinygo$(TINYGO_VERSION).linux-amd64.tar.gz; \
+		mv /tmp/tinygo $(LOCALBIN)/; \
 	}

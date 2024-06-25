@@ -19,9 +19,12 @@ spec:
   phase: AUTHN
 
   # Params to pass to the plugin
-  pluginConfig:
-    trusted_networks:
-      - 35.0.0.0/8
-      - 10.0.0.0/8
-      - 34.0.0.0/8
+  pluginConfig: |
+    {
+      "trusted_networks": [
+        "35.0.0.0/8",
+        "10.0.0.0/8",
+        "34.0.0.0/8"
+      ]
+    }
 
