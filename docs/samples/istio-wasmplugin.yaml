@@ -20,4 +20,8 @@ spec:
 
   # Params to pass to the plugin
   pluginConfig:
-    num_trusted_hops: 3
+    trusted_networks:
+      - 35.0.0.0/8
+      - 10.0.0.0/8
+      - 34.0.0.0/8
+

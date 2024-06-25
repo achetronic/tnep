@@ -1,20 +1,18 @@
-// This WASM plugin for Envoy is intended to keep only the first IP from x-forwarded-for hops chain.
-// Ideally, it should be used on Istio sidecars' 'AUTHZ' filter-chain phase.
-// Its mission is cleaning Xff header before using an AuthorizationPolicy to limit origins for the requests,
-// as it only works with rightmost IP in mentioned header.
-// This plugin also sets 'x-original-forwarded-for' header with original chain not to lose critical information.
+// This WASM plugin for Envoy is designed to manage non-trusted IPs in the 'x-forwarded-for' HTTP header.
+// Ideally, it should be used in the 'AUTHZ' filter chain phase of Istio sidecars.
 
-// Ref: https://medium.com/trendyol-tech/extending-envoy-proxy-wasm-filter-with-golang-9080017f28ea
+// Its purpose is to sanitize the XFF header before applying an AuthorizationPolicy to restrict origins for requests,
+// as this policy only operates on the rightmost IP in the mentioned header.
+// Additionally, this plugin sets the 'x-original-forwarded-for' header with the original chain to preserve critical information.
+
 // Ref: https://github.com/tetratelabs/proxy-wasm-go-sdk/blob/main/examples/http_headers/
 
 package main
 
 import (
-	"reflect"
-	slices2 "slices"
-	"strings"
-
 	"github.com/tidwall/gjson"
+	"net"
+	"strings"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
@@ -47,17 +45,10 @@ type pluginContext struct {
 	// so that we don't need to reimplement all the methods.
 	types.DefaultPluginContext
 
-	// headerName and headerValue are the header to be added to response. They are configured via
-	// plugin configuration during OnPluginStart.
-	numTrustedHops int
-}
+	// Following fields are configured via plugin configuration during OnPluginStart.
 
-// NewHttpContext implements types.PluginContext.
-func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
-	return &httpHeaders{
-		contextID:      contextID,
-		numTrustedHops: p.numTrustedHops,
-	}
+	// trustedNetworks are the CIDRs from where we check XFF IPs during a request.
+	trustedNetworks []*net.IPNet
 }
 
 // OnPluginStart implements types.PluginContext.
@@ -74,21 +65,22 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	}
 
 	if !gjson.Valid(string(data)) {
-		proxywasm.LogCritical(`invalid configuration format; expected {"num_trusted_hops": "<num>"}`)
+		proxywasm.LogCritical(`invalid configuration format; expected {"trusted_networks": ["<cidr>"...]}`)
 		return types.OnPluginStartStatusFailed
 	}
 
-	configNumTrustedHops := gjson.Get(string(data), "num_trusted_hops").Num
-	p.numTrustedHops = int(configNumTrustedHops)
+	// Parse networks from 'trusted_networks' param
+	configTrustedNetwork := gjson.Get(string(data), "trusted_networks").Array()
+	for _, trustedNetwork := range configTrustedNetwork {
 
-	// Check parameter type
-	numTrustedHopsType := reflect.TypeOf(p.numTrustedHops)
-	if numTrustedHopsType.Kind() != reflect.Int {
-		proxywasm.LogCritical(`invalid configuration format; expected {"num_trusted_hops": "<num>"}`)
-		return types.OnPluginStartStatusFailed
+		_, netPtr, err := net.ParseCIDR(trustedNetwork.Str)
+		if err != nil {
+			proxywasm.LogCriticalf(`impossible to parse cidr from config: %s`, err)
+			return types.OnPluginStartStatusFailed
+		}
+
+		p.trustedNetworks = append(p.trustedNetworks, netPtr)
 	}
-
-	proxywasm.LogInfof("num_trusted_hops from config: %d", p.numTrustedHops)
 
 	return types.OnPluginStartStatusOK
 }
@@ -100,49 +92,58 @@ type httpHeaders struct {
 	types.DefaultHttpContext
 	contextID uint32
 
-	//
-	numTrustedHops int
+	// TODO
+	trustedNetworks []*net.IPNet
+}
+
+// NewHttpContext implements types.PluginContext.
+func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
+	return &httpHeaders{
+		contextID: contextID,
+
+		// TODO
+		trustedNetworks: p.trustedNetworks,
+	}
 }
 
 // OnHttpRequestHeaders implements types.HttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
 
-	proxywasm.LogCriticalf("numTrustedHops variable: %v", ctx.numTrustedHops)
-
-	hs, err := proxywasm.GetHttpRequestHeaders()
+	requestHeaders, err := proxywasm.GetHttpRequestHeaders()
 	if err != nil {
 		proxywasm.LogCriticalf("failed to get request headers: %v", err)
 	}
 
 	// Loop over the headers to look for ours
-	for _, h := range hs {
-		if h[0] != HttpHeaderXff {
+	for _, requestHeader := range requestHeaders {
+		if requestHeader[0] != HttpHeaderXff {
 			continue
 		}
 
+		var resultingSourceHops []string
+
+		// 88.x.x.x,34.y.y.y,35.z.z.z,10.a.a.a -> [88.x.x.x, 34.y.y.y, 35.z.z.z, 10.a.a.a]
+		sourceHopsRaw := strings.Split(requestHeader[1], ",")
+
+		// Look for the IPs into the CIDRs
+		for _, sourceHopRaw := range sourceHopsRaw {
+
+			sourceHop := net.ParseIP(sourceHopRaw)
+
+			// Check if is current processed IP is trusted according to configured CIDRs
+			if !isTrustedIp(ctx.trustedNetworks, sourceHop) {
+				resultingSourceHops = append(resultingSourceHops, sourceHop.String())
+			}
+		}
+
 		// Preserve Xff data into an alternative header
-		err := proxywasm.AddHttpRequestHeader(HttpHeaderOriginalXff, h[1])
+		err := proxywasm.AddHttpRequestHeader(HttpHeaderOriginalXff, requestHeader[1])
 		if err != nil {
 			proxywasm.LogCriticalf("failed to set '%s' header: %v", HttpHeaderOriginalXff, err)
 		}
 
-		// 88.x.x.x,34.y.y.y,35.z.z.z,10.a.a.a -> [88.x.x.x, 34.y.y.y, 35.z.z.z, 10.a.a.a]
-		sourceHops := strings.Split(h[1], ",")
-
-		// [10.a.a.a, 35.z.z.z, 34.y.y.y, 88.x.x.x]
-		slices2.Reverse(sourceHops)
-
-		// Delete hops when we trust less than coming
-		if ctx.numTrustedHops < len(sourceHops) {
-			slices2.Delete(sourceHops, 0, ctx.numTrustedHops)
-			proxywasm.LogInfof("original client ip found: %s", sourceHops[0])
-		} else {
-			sourceHops = []string{""}
-			proxywasm.LogInfof("original client ip NOT found. Are you trusting too many hops?")
-		}
-
 		// Replace Xff header
-		err = proxywasm.ReplaceHttpRequestHeader(HttpHeaderXff, sourceHops[0])
+		err = proxywasm.ReplaceHttpRequestHeader(HttpHeaderXff, strings.Join(resultingSourceHops, ","))
 		if err != nil {
 			proxywasm.LogCriticalf("failed to replace '%s' header: %v", HttpHeaderXff, err)
 		}

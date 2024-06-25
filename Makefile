@@ -68,7 +68,7 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 .PHONY: build
 build: ## Build WASM binary.
 	@mkdir -p dist
-	@tinygo build -o dist/main.wasm -scheduler=none -target=wasi ./main.go
+	@tinygo build -o dist/main.wasm -scheduler=none -target=wasi .
 
 .PHONY: run
 run: envoy ## Run an envoy using your plugin from your host
