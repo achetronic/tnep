@@ -66,7 +66,7 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 ##@ Build
 
 .PHONY: build
-build: ## Build WASM binary.
+build: tinygo ## Build WASM binary.
 	@mkdir -p dist
 	$(TINYGO) build -o dist/main.wasm -scheduler=none -target=wasi .
 

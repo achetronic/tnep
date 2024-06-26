@@ -1,16 +1,16 @@
 apiVersion: extensions.istio.io/v1alpha1
 kind: WasmPlugin
 metadata:
-  name: openid-connect
-  namespace: istio-ingress
+  name: workload-with-sidecar
+  namespace: product
 spec:
-  # Where to apply the plugin
+  # Where to apply the plugin. Remember you have to select a workload that is a gateway, or has a sidecar inside
   selector:
     matchLabels:
-      istio: ingressgateway
+      istio: workload-with-sidecar
 
   # Where to get the plugin
-  url: https://private-bucket/filters/openid.wasm
+  url: https://github.com/achetronic/tnep/releases/download/v0.1.0/plugin.wasm
   imagePullPolicy: Always
 
   # When to apply the plugin
