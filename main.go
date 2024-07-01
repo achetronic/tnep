@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	HttpHeaderXff         = "x-forwarded-for"
-	HttpHeaderOriginalXff = "x-original-forwarded-for"
+	HttpHeaderXff = "x-forwarded-for"
 )
 
 func main() {
@@ -47,6 +46,9 @@ type pluginContext struct {
 
 	// Following fields are configured via plugin configuration during OnPluginStart.
 
+	// injectedHeaderName TODO
+	injectedHeaderName string
+
 	// trustedNetworks are the CIDRs from where we check XFF IPs during a request.
 	trustedNetworks []*net.IPNet
 }
@@ -65,7 +67,14 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	}
 
 	if !gjson.Valid(string(data)) {
-		proxywasm.LogCritical(`invalid configuration format; expected {"trusted_networks": ["<cidr>"...]}`)
+		proxywasm.LogCritical(`invalid configuration format; expected {"injected_header_name": "x-sample", "trusted_networks": ["<cidr>"...]}`)
+		return types.OnPluginStartStatusFailed
+	}
+
+	// Parse header name from 'injected_header_name'
+	p.injectedHeaderName = gjson.Get(string(data), "injected_header_name").Str
+	if p.injectedHeaderName == "" {
+		proxywasm.LogCritical(`injected_header_name param can not be empty`)
 		return types.OnPluginStartStatusFailed
 	}
 
@@ -92,6 +101,9 @@ type httpHeaders struct {
 	types.DefaultHttpContext
 	contextID uint32
 
+	// injectedHeaderName TODO
+	injectedHeaderName string
+
 	// TODO
 	trustedNetworks []*net.IPNet
 }
@@ -100,6 +112,9 @@ type httpHeaders struct {
 func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	return &httpHeaders{
 		contextID: contextID,
+
+		// TODO
+		injectedHeaderName: p.injectedHeaderName,
 
 		// TODO
 		trustedNetworks: p.trustedNetworks,
@@ -122,7 +137,7 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 
 		var resultingSourceHops []string
 
-		// 88.x.x.x,34.y.y.y,35.z.z.z,10.a.a.a -> [88.x.x.x, 34.y.y.y, 35.z.z.z, 10.a.a.a]
+		// 88.x.x.x,34.y.y.y,35.z.z.z,10.a.a.a -> [96.r.r.r, 93.u.u.u, 34.y.y.y, 35.z.z.z, 10.a.a.a, 88.x.x.x, 34.y.y.y, 35.z.z.z, 10.a.a.a]
 		sourceHopsRaw := strings.Split(requestHeader[1], ",")
 
 		// Look for the IPs into the CIDRs
@@ -136,16 +151,13 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 			}
 		}
 
-		// Preserve Xff data into an alternative header
-		err := proxywasm.AddHttpRequestHeader(HttpHeaderOriginalXff, requestHeader[1])
-		if err != nil {
-			proxywasm.LogCriticalf("failed to set '%s' header: %v", HttpHeaderOriginalXff, err)
-		}
+		// TODO
+		realClientIp := resultingSourceHops[len(resultingSourceHops)-1]
 
-		// Replace Xff header
-		err = proxywasm.ReplaceHttpRequestHeader(HttpHeaderXff, strings.Join(resultingSourceHops, ","))
+		// Finally, set the header
+		err := proxywasm.AddHttpRequestHeader(ctx.injectedHeaderName, realClientIp)
 		if err != nil {
-			proxywasm.LogCriticalf("failed to replace '%s' header: %v", HttpHeaderXff, err)
+			proxywasm.LogCriticalf("failed to set '%s' header: %v", ctx.injectedHeaderName, err)
 		}
 
 		break
