@@ -10,7 +10,8 @@
 
 ## Description
 
-Envoy WASM plugin to process X-Forwarder-For header, Deleting IPs that are trusted by some networks in config
+Envoy WASM plugin to process X-Forwarded-For header. 
+With it and a list of configured trusted networks, it gets real client IP, and put it in a custom header
 
 ## Motivation
 
@@ -20,13 +21,14 @@ behind a load-balancer that performs dynamic amount of hops before reaching Envo
 In that case, it's not possible to use 'xff_num_trusted_hops' parameter present in Envoy, as it needs a fixed amount
 of trusted hops.
 
-This plugin comes to fix this issue, being able to check the IPs coming into the `X-Forwarder-For` header, 
-and deleting those that are inside configured trusted networks. 
+This plugin comes to fix this issue, being able to check the IPs coming into the `X-Forwarded-For` header, 
+deleting those that are inside configured trusted networks, and finally writting client's real IP
+in a custom header
 
 That way, you can trust entire network ranges, instead of the number of hops, and get only the IPs that belongs to
 foreign networks
 
-## How to develop
+## How to deploy
 
 Deploying process for this plugin depends on the target (Istio or pure Envoy). You can find examples for both of them
 in [documentation directory](./docs/samples). In fact, these examples are used by us to test, so you can rely on them.
