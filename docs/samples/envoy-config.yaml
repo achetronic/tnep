@@ -35,12 +35,13 @@ static_resources:
                             "@type": type.googleapis.com/google.protobuf.StringValue
                             value: |
                               {
-                                "injected_header_name": "x-real-client-ip",
                                 "trusted_networks" : [
                                   "35.0.0.0/8",
                                   "10.0.0.0/8",
                                   "34.0.0.0/8"
-                                ]
+                                ],
+                                "injected_header_name": "x-real-client-ip",
+                                "overwrite_header_on_exists": true
                               }
                           vm_config:
                             runtime: "envoy.wasm.runtime.v8"
@@ -88,10 +89,10 @@ static_resources:
                             request_handle:logCritical("EnvoyFilter 'envoy.filters.http.custom_debug': direct response")
                           
                             local headers = request_handle:headers()
-                            header_xff = headers:get("x-forwarder-for")
+                            header_xff = headers:get("x-forwarded-for")
                             header_xrci = headers:get("x-real-client-ip")
                           
-                            request_handle:respond({[":status"] = "200", ["x-forwarder-for"] = header_xff, ["x-real-client-ip"] = header_xrci }, "Direct response")
+                            request_handle:respond({[":status"] = "200", ["x-forwarded-for"] = header_xff, ["x-real-client-ip"] = header_xrci }, "Direct response")
                           end
 
                   - name: envoy.filters.http.router

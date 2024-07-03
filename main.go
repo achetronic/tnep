@@ -46,11 +46,14 @@ type pluginContext struct {
 
 	// Following fields are configured via plugin configuration during OnPluginStart.
 
+	// trustedNetworks are the CIDRs from where we check XFF IPs during a request.
+	trustedNetworks []*net.IPNet
+
 	// injectedHeaderName TODO
 	injectedHeaderName string
 
-	// trustedNetworks are the CIDRs from where we check XFF IPs during a request.
-	trustedNetworks []*net.IPNet
+	// overwriteHeaderOnExists TODO
+	overwriteHeaderOnExists bool
 }
 
 // OnPluginStart implements types.PluginContext.
@@ -67,14 +70,7 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 	}
 
 	if !gjson.Valid(string(data)) {
-		proxywasm.LogCritical(`invalid configuration format; expected {"injected_header_name": "x-sample", "trusted_networks": ["<cidr>"...]}`)
-		return types.OnPluginStartStatusFailed
-	}
-
-	// Parse header name from 'injected_header_name'
-	p.injectedHeaderName = gjson.Get(string(data), "injected_header_name").Str
-	if p.injectedHeaderName == "" {
-		proxywasm.LogCritical(`injected_header_name param can not be empty`)
+		proxywasm.LogCritical(`invalid configuration format; expected {"trusted_networks": ["<cidr>"...], "injected_header_name": "x-sample", "overwrite_header_on_exists": <bool> }`)
 		return types.OnPluginStartStatusFailed
 	}
 
@@ -91,6 +87,23 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		p.trustedNetworks = append(p.trustedNetworks, netPtr)
 	}
 
+	// Parse header name from 'injected_header_name'
+	p.injectedHeaderName = gjson.Get(string(data), "injected_header_name").Str
+	if p.injectedHeaderName == "" {
+		proxywasm.LogCritical(`injected_header_name param can not be empty`)
+		return types.OnPluginStartStatusFailed
+	}
+
+	// Parse header name from 'overwrite_header_on_exists'
+	overwriteHeaderOnExistsRaw := gjson.Get(string(data), "overwrite_header_on_exists")
+	if !overwriteHeaderOnExistsRaw.IsBool() {
+		proxywasm.LogCritical(`overwrite_header_on_exists param must be boolean`)
+		return types.OnPluginStartStatusFailed
+	}
+
+	p.overwriteHeaderOnExists = overwriteHeaderOnExistsRaw.Bool()
+
+	//
 	return types.OnPluginStartStatusOK
 }
 
@@ -101,11 +114,14 @@ type httpHeaders struct {
 	types.DefaultHttpContext
 	contextID uint32
 
+	// TODO
+	trustedNetworks []*net.IPNet
+
 	// injectedHeaderName TODO
 	injectedHeaderName string
 
-	// TODO
-	trustedNetworks []*net.IPNet
+	// overwriteHeaderOnExists TODO
+	overwriteHeaderOnExists bool
 }
 
 // NewHttpContext implements types.PluginContext.
@@ -114,20 +130,27 @@ func (p *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 		contextID: contextID,
 
 		// TODO
+		trustedNetworks: p.trustedNetworks,
+
+		// TODO
 		injectedHeaderName: p.injectedHeaderName,
 
 		// TODO
-		trustedNetworks: p.trustedNetworks,
+		overwriteHeaderOnExists: p.overwriteHeaderOnExists,
 	}
 }
 
 // OnHttpRequestHeaders implements types.HttpContext.
 func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
 
+	// 1. Process XFF header to find out 'realClientIp'
 	requestHeaders, err := proxywasm.GetHttpRequestHeaders()
 	if err != nil {
 		proxywasm.LogCriticalf("failed to get request headers: %v", err)
 	}
+
+	var sourceHopsRaw []string
+	var realClientIp string
 
 	// Loop over the headers to look for ours
 	for _, requestHeader := range requestHeaders {
@@ -138,7 +161,7 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 		var resultingSourceHops []string
 
 		// 88.x.x.x,34.y.y.y,35.z.z.z,10.a.a.a -> [96.r.r.r, 93.u.u.u, 34.y.y.y, 35.z.z.z, 10.a.a.a, 88.x.x.x, 34.y.y.y, 35.z.z.z, 10.a.a.a]
-		sourceHopsRaw := strings.Split(requestHeader[1], ",")
+		sourceHopsRaw = strings.Split(requestHeader[1], ",")
 
 		// Look for the IPs into the CIDRs
 		for _, sourceHopRaw := range sourceHopsRaw {
@@ -152,15 +175,40 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 		}
 
 		// TODO
-		realClientIp := resultingSourceHops[len(resultingSourceHops)-1]
+		realClientIp = resultingSourceHops[len(resultingSourceHops)-1]
+		break
+	}
 
-		// Finally, set the header
-		err := proxywasm.AddHttpRequestHeader(ctx.injectedHeaderName, realClientIp)
+	// 2. Process Injected Header according to the configured conditions
+	if realClientIp == "" {
+		return types.ActionContinue
+	}
+
+	injectedHeaderValue, err := proxywasm.GetHttpRequestHeader(ctx.injectedHeaderName)
+	if err != nil {
+		proxywasm.LogCriticalf("failed to get current value for injected header: %v", ctx.injectedHeaderName)
+	}
+
+	// Already present and overwrite NOT requested
+	if injectedHeaderValue != "" && !ctx.overwriteHeaderOnExists {
+		proxywasm.LogCriticalf("header '%v' already present. overwritting is disabled by configuration", ctx.injectedHeaderName)
+	}
+
+	// Already present and overwrite IS requested
+	if injectedHeaderValue != "" && ctx.overwriteHeaderOnExists {
+		err = proxywasm.ReplaceHttpRequestHeader(ctx.injectedHeaderName, realClientIp)
+		if err != nil {
+			proxywasm.LogCriticalf("failed to overwrite '%s' header: %v", ctx.injectedHeaderName, err)
+		}
+	}
+
+	// Header not present, add it
+	if injectedHeaderValue == "" {
+		err = proxywasm.AddHttpRequestHeader(ctx.injectedHeaderName, realClientIp)
 		if err != nil {
 			proxywasm.LogCriticalf("failed to set '%s' header: %v", ctx.injectedHeaderName, err)
 		}
-
-		break
 	}
+
 	return types.ActionContinue
 }
