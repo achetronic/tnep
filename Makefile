@@ -71,7 +71,7 @@ build: tinygo ## Build WASM binary.
 	$(TINYGO) build -o dist/main.wasm -scheduler=none -target=wasi .
 
 .PHONY: run
-run: envoy ## Run an envoy using your plugin from your host
+run: envoy build ## Run an envoy using your plugin from your host
 	$(ENVOY) -c ./docs/samples/envoy-config.yaml --concurrency 2 --log-format '%v'
 
 # Build docker images of *compat* variant of Wasm Image Specification
