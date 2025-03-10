@@ -110,18 +110,18 @@ static_resources:
                         action: ALLOW
                         policies:
                           # ❌ Not working (by the moment)
-                          "allow-specific-origins-by-source":
-                            permissions:
-                              - any: true
-                            principals:
-                              - or_ids:
-                                  ids:
-                                    - remote_ip:
-                                        address_prefix: "88.0.0.0"
-                                        prefix_len: 8
-                                    - remote_ip:
-                                        address_prefix: "69.0.0.0"
-                                        prefix_len: 8
+                          #"allow-specific-origins-by-source":
+                          #  permissions:
+                          #    - any: true
+                          #  principals:
+                          #    - or_ids:
+                          #        ids:
+                          #          - remote_ip:
+                          #              address_prefix: "88.0.0.0"
+                          #              prefix_len: 8
+                          #          - remote_ip:
+                          #              address_prefix: "69.0.0.0"
+                          #              prefix_len: 8
 
                           # ✅ Working, use this
                           "allow-specific-origins-by-header":
@@ -133,11 +133,11 @@ static_resources:
                                     or_ids:
                                       ids:
                                         - header:
-                                            name: "x-real-client-ip",
-                                            exact_match": "88.69.69.69"
+                                            name: x-real-client-ip
+                                            exact_match: 88.69.69.69
                                         - header:
-                                            name: "x-real-client-ip",
-                                            exact_match": "69.69.69.69"
+                                            name: x-real-client-ip
+                                            exact_match: 69.69.69.69
 
                   - name: envoy.filters.http.custom_debug
                     typed_config:
@@ -147,13 +147,13 @@ static_resources:
                       default_source_code:
                         inline_string: |
                           function envoy_on_request(request_handle)
-                          
+
                             request_handle:logCritical("EnvoyFilter 'envoy.filters.http.custom_debug': direct response")
-                          
+
                             local headers = request_handle:headers()
                             header_xff = headers:get("x-forwarded-for")
                             header_xrci = headers:get("x-real-client-ip")
-                          
+
                             request_handle:respond({[":status"] = "200", ["x-forwarded-for"] = header_xff, ["x-real-client-ip"] = header_xrci }, "Direct response")
                           end
 

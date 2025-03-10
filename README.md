@@ -8,6 +8,10 @@
 ![GitHub User's stars](https://img.shields.io/github/stars/achetronic?label=Achetronic%20Stars)
 ![GitHub followers](https://img.shields.io/github/followers/achetronic?label=Achetronic%20Followers)
 
+> [!IMPORTANT]  
+> This is taking advantage of Go 1.24+ and new `go:wasmexport` directive, so using upstream Go.
+> Thanks to [proxy-wasm community](https://github.com/proxy-wasm/proxy-wasm-go-sdk/tree/main)
+
 ## Description
 
 Envoy WASM plugin to process X-Forwarded-For header. 

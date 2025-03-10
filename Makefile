@@ -66,9 +66,9 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 ##@ Build
 
 .PHONY: build
-build: tinygo ## Build WASM binary.
+build: ## Build WASM binary.
 	@mkdir -p dist
-	$(TINYGO) build -o dist/main.wasm -scheduler=none -target=wasi .
+	GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o dist/main.wasm .
 
 .PHONY: run
 run: envoy build ## Run an envoy using your plugin from your host
@@ -122,13 +122,9 @@ $(LOCALBIN):
 
 ## Tool Binaries
 ENVOY ?= $(LOCALBIN)/envoy
-ORAS ?= $(LOCALBIN)/oras
-TINYGO ?= $(LOCALBIN)/tinygo/bin/tinygo
 
 ## Tool Versions
-ENVOY_VERSION ?= 1.30.2
-ORAS_VERSION ?= 1.2.0
-TINYGO_VERSION ?= 0.32.0
+ENVOY_VERSION ?= 1.33.0
 
 .PHONY: envoy
 envoy: $(ENVOY) ## Download envoy locally if necessary.
@@ -137,23 +133,4 @@ $(ENVOY): $(LOCALBIN)
 		wget --timestamping --quiet https://github.com/envoyproxy/envoy/releases/download/v$(ENVOY_VERSION)/envoy-contrib-$(ENVOY_VERSION)-linux-x86_64 -P $(LOCALBIN); \
 		mv $(LOCALBIN)/envoy-contrib-$(ENVOY_VERSION)-linux-x86_64 $(LOCALBIN)/envoy; \
 		chmod +x $(LOCALBIN)/envoy; \
-	}
-
-.PHONY: oras
-oras: $(ORAS) ## Download ORAS locally if necessary.
-$(ORAS): $(LOCALBIN)
-	@test -s $(LOCALBIN)/oras || { \
-		wget --timestamping --quiet https://github.com/oras-project/oras/releases/download/v$(ORAS_VERSION)/oras_$(ORAS_VERSION)_linux_amd64.tar.gz -P /tmp; \
-		tar --gzip --extract --directory /tmp --file /tmp/oras_$(ORAS_VERSION)_linux_amd64.tar.gz oras; \
-		mv /tmp/oras $(LOCALBIN)/oras; \
-		chmod +x $(LOCALBIN)/oras; \
-	}
-
-.PHONY: tinygo
-tinygo: $(TINYGO) ## Download tinygo locally if necessary.
-$(TINYGO): $(LOCALBIN)
-	@test -s $(LOCALBIN)/tinygo || { \
-		wget --timestamping --quiet https://github.com/tinygo-org/tinygo/releases/download/v$(TINYGO_VERSION)/tinygo$(TINYGO_VERSION).linux-amd64.tar.gz -P /tmp; \
-		tar --gzip --extract --directory /tmp --file /tmp/tinygo$(TINYGO_VERSION).linux-amd64.tar.gz; \
-		mv /tmp/tinygo $(LOCALBIN)/; \
 	}

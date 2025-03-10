@@ -10,12 +10,11 @@
 package main
 
 import (
+	"github.com/proxy-wasm/proxy-wasm-go-sdk/proxywasm"
+	"github.com/proxy-wasm/proxy-wasm-go-sdk/proxywasm/types"
 	"github.com/tidwall/gjson"
 	"net"
 	"strings"
-
-	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
-	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
 
 const (
@@ -23,6 +22,10 @@ const (
 )
 
 func main() {
+	//proxywasm.SetVMContext(&vmContext{})
+}
+
+func init() {
 	proxywasm.SetVMContext(&vmContext{})
 }
 
@@ -175,7 +178,10 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 		}
 
 		// TODO
-		realClientIp = resultingSourceHops[len(resultingSourceHops)-1]
+		if len(resultingSourceHops) >= 1 {
+			realClientIp = resultingSourceHops[len(resultingSourceHops)-1]
+		}
+
 		break
 	}
 
