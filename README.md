@@ -40,10 +40,9 @@ in [documentation directory](./docs/samples). In fact, these examples are used b
 
 ## How to develop
 
-This plugin is developed using Go, but compiled using TinyGo. This is done this way because of a limitation in the 
-upstream compiler related to [exported functions when compiling to WebAssembly](https://github.com/tetratelabs/proxy-wasm-go-sdk/blob/main/doc/OVERVIEW.md#tinygo-vs-the-official-go-compiler). 
+This plugin is developed using Go.
 
-You don't have to worry about mentioned details, as it's only needed to craft your code and execute the following command:
+It's only needed to craft your code and execute the following command:
 
 ```console
 make build run
